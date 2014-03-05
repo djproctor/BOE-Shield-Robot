@@ -1,0 +1,236 @@
+/*******
+ *
+ * Bot3Mar14
+ *
+ * Sketch for robotics with the Board of Education Shield for Arduino
+ *
+ * Adapted from:
+ * http://learn.parallax.com/ShieldRobot
+ * http://www.arduino.cc/en/Tutorial/tone
+ * http://www.arduino.cc/en/Tutorial/Debounce
+ * http://www.arduino.cc/en/Tutorial/Switch
+ *
+ * IR object detection for:
+ *  1. object avoidance while on the ground, or
+ *  2. edge avoidance while on a table
+ *
+ * introductory fanfare using piezoelectric speaker
+ *
+ * button for switching between states 1 and 2
+ *
+ *******/
+
+
+
+/* INCLUDES */
+
+//servo and pitch libraries
+#include <Servo.h>
+#include "pitches.h"
+
+
+
+/* CONSTANTS */
+
+// assigns button to pin
+const int buttonPin = 11;
+
+
+
+/* SERVOS */
+
+// declare left and right servos
+Servo servoLeft;
+Servo servoRight;
+
+
+
+/* VARIABLES */
+
+int buttonPin = 11; // the number of the pin
+
+int state = HIGH; // assign state to the pin
+int reading; // the current reading from the pin
+int previous = LOW; // the previous reading from the pin
+
+// Initialize fanfare array using one of two available methods
+
+// /* fanfare method one - in use
+int melody[] = {NOTE_G6, NOTE_C7, NOTE_E7, NOTE_G7, NOTE_E7, NOTE_G7};
+int noteDurations[] = {8, 8, 8, 4, 8, 1};
+// /*
+
+/* fanfare method two
+int note[] = {1568, 2093, 2637, 3136, 2637, 3136};
+*/
+
+long time = 0; // the last time the pin was toggled
+long debounce = 200; // the debounce time, increase if the output flickers
+
+// for getting out of corners
+// UNDER CONSTRUCTION
+byte irLeftOld;
+byte irRightOld;                              
+byte counter;
+
+
+
+/* INITIALIZATION */
+
+void setup()
+{
+ 
+  pinMode(10, INPUT); pinMode(9, OUTPUT); // Left IR LED & Receiver
+  pinMode(3, INPUT); pinMode(2, OUTPUT); // Right IR LED & Receiver
+  pinMode(8, OUTPUT); pinMode(7, OUTPUT); // Indicator LEDs
+  pinMode(buttonPin, INPUT); // button as input
+
+  servoLeft.attach(13); // Attach left signal to pin 13
+  servoRight.attach(12); // Attach right signal to pin 12
+
+// /* fanfare method one - in use
+  int elementCount = sizeof(melody) / sizeof(int);
+  for (int thisNote = 0; thisNote < elementCount; thisNote++) {
+    int noteDuration = 1000/noteDurations[thisNote]; // calculate note duration as fraction of 1 second
+    tone(4, melody[thisNote], noteDuration); // piezo speaker is on pin 4
+    int pauseBetweenNotes = noteDuration * 1.30;
+    delay(pauseBetweenNotes);
+    noTone(4); // stop
+  }
+// */
+
+/* fanfare method two
+  int elementCount = sizeof(note) / sizeof(int);
+  for(int index = 0; index < elementCount; index++)
+  {
+    tone(4, note[index], 200);               
+    delay(250);                                
+  }
+*/
+
+// for getting out of corners
+// UNDER CONSTRUCTION
+  irLeftOld = 0; // Initialize previous IR detect states
+  irRightOld = 1;  
+  counter = 0; // Initialize counter to 0
+  
+}
+
+
+
+/* LOOPS */
+
+void loop()                                  
+{
+    
+  reading = digitalRead(buttonPin);
+  // read the pushbutton pin: if the input just went from LOW to HIGH 
+  // and we've waited long enough to ignore any noise on the circuit, 
+  // toggle the output pin and remember the time
+  if (reading == HIGH && previous == LOW && millis() - time > debounce) {
+    if (state == HIGH)
+      state = LOW;
+    else
+      state = HIGH;
+
+    time = millis();    
+  }
+  previous = reading;
+ 
+  int irLeft = irDetect(9, 10, 38000); // Check for object on left
+  int irRight = irDetect(2, 3, 38000); // Check for object on right
+ 
+  // LED states opposite of IR
+  digitalWrite(8, !irLeft);                     
+  digitalWrite(7, !irRight);
+ 
+  if(state == HIGH)
+  {
+    if((irLeft == 0) && (irRight == 0)) // If both sides detect
+    {
+    maneuver(-200, -200, 20); // Backward 20 milliseconds
+    }
+    else if(irLeft == 0) // If only left side detects
+    {
+    maneuver(200, -200, 20); // Right for 20 ms
+    }
+    else if(irRight == 0) // If only right side detects
+    {
+      maneuver(-200, 200, 20); // Left for 20 ms
+    }
+    else // Otherwise, no IR detects
+    {
+      maneuver(200, 200, 20); // Forward 20 ms
+    }
+  }
+  else
+  {
+    if((irLeft == 0) && (irRight == 0))  
+    {
+      maneuver(200, 200, 20);
+    }
+    else if(irLeft == 0)        
+    {
+      maneuver(-200, 200, 375);
+    }
+    else if(irRight == 0)                
+    {
+      maneuver(200, -200, 375);          
+    }
+    else
+    {
+      maneuver(-200, -200, 250);
+    }
+  }
+ 
+// for getting out of corners
+// UNDER CONSTRUCTION
+  byte irLeft = digitalRead(3); // Copy right result to irLeft  
+  byte irRight = digitalRead(10); // Copy left result to irRight
+  if(irLeft != irRight) // One IR detect?
+  {
+    if ((irLeft != irLeftOld) && (irRight != irRightOld)) // Alternate from last time?
+    {                                       
+      counter++; // Increase count by one
+      irLeftOld = irLeft; // Record current for next rep
+      irRightOld = irRight;
+      if(counter == 4) // Stuck in a corner?
+      {
+        irLeft = 0; // Set up for U-turn
+        iright = 0;
+        counter = 0; // Clear alternate corner count
+      }
+    }  
+    else // Not alternate from last time?
+    {
+      counter = 0; // Clear alternate corner count
+    }
+  }  
+}
+
+
+
+/* FUNCTIONS */
+
+int irDetect(int irLedPin, int irReceiverPin, long frequency)
+{
+  tone(irLedPin, frequency, 8); // IRLED 38 kHz for at least 1 ms
+  delay(1); // Wait 1 ms
+  int ir = digitalRead(irReceiverPin); // IR receiver -> ir variable
+  delay(1); // Down time before recheck
+  return ir; // Return 1 no detect, 0 detect
+}  
+
+void maneuver(int speedLeft, int speedRight, int msTime)
+{
+  // speedLeft, speedRight ranges: Backward  Linear  Stop  Linear   Forward
+  //                               -200      -100......0......100       200
+  servoLeft.writeMicroseconds(1500 + speedLeft); // Set left servo speed
+  servoRight.writeMicroseconds(1500 - speedRight); // Set right servo speed
+  if(msTime==-1)
+  {                                  
+    servoLeft.detach(); // Stop servo signals
+    servoRight.detach();   
+  }
+  delay(msTime); // Delay for msTime
+}
